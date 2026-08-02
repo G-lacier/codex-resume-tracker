@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+          components: rustfmt, clippy
+      - name: Prepare project-local artifact directories
+        run: mkdir -p TMP/cargo-home TMP/target TMP/dist
+      - name: Validate tag source
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets --all-features
+      - name: Build Linux x86_64 binary
+        run: cargo build --locked --release --target x86_64-unknown-linux-gnu
+      - name: Package and checksum
+        run: |
+          cp TMP/target/x86_64-unknown-linux-gnu/release/codex-resume-tracker TMP/dist/
+          tar -C TMP/dist -czf TMP/dist/codex-resume-tracker-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz codex-resume-tracker
+          (cd TMP/dist && sha256sum codex-resume-tracker-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz > SHA256SUMS)
+      - name: Publish private GitHub release assets
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            TMP/dist/codex-resume-tracker-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz \
+            TMP/dist/SHA256SUMS \
+            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
+    env:
+      TMPDIR: ${{ github.workspace }}/TMP
+      CARGO_HOME: ${{ github.workspace }}/TMP/cargo-home
+      CARGO_TARGET_DIR: ${{ github.workspace }}/TMP/target
+
